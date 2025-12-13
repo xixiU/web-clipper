@@ -22,15 +22,39 @@ jobs:
       - name: Build and Package
         run: npm run release
 
-      - name: Upload Chrome Artifact
+      # 4. 打包 Chrome 版本
+      # 进入 dist/chrome 目录进行压缩
+      - name: Package Chrome Extension
+        run: |
+          if [ -d "dist/chrome" ]; then
+            cd dist/chrome
+            zip -r ../../web-clipper-chrome.zip ./*
+            echo "✅ Chrome version packaged."
+          else
+            echo "❌ Error: dist/chrome folder not found!"
+            exit 1
+          fi
+
+      # 5. 打包 Firefox 版本
+      # 进入 dist 根目录压缩，但【排除】chrome 子文件夹
+      # 这样 Firefox 包里就不会包含另一个 Chrome 包的数据
+      - name: Package Firefox Extension
+        run: |
+          if [ -f "dist/manifest.json" ]; then
+            cd dist
+            zip -r ../web-clipper-firefox.zip 
+            echo "✅ Firefox version packaged (from dist root)."
+          else
+            echo "❌ Error: dist/manifest.json not found!"
+            exit 1
+          fi
+
+      # 6. 上传两个 ZIP 文件
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: web-clipper-chrome
-          path: release/web-clipper-chrome.zip
-
-      - name: Upload Firefox Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: web-clipper-firefox
-          path: release/web-clipper-firefox.zip
-
+          name: web-clipper-release
+          path: |
+            web-clipper-chrome.zip
+            web-clipper-firefox.zip
+          retention-days: 5
