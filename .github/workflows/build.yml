@@ -16,11 +16,8 @@ jobs:
         with:
           node-version: '16.x'
       
-      - name: Install pnpm
-        run: npm install -g pnpm
-
       - name: Install Dependencies
-        run: pnpm install
+        run: npm install --force
 
       - name: Build and Package
         run: npm run release
