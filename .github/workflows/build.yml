@@ -42,7 +42,7 @@ jobs:
         run: |
           if [ -f "dist/manifest.json" ]; then
             cd dist
-            zip -r ../web-clipper-firefox.zip 
+            zip -r ../web-clipper-firefox.zip ./*
             echo "✅ Firefox version packaged (from dist root)."
           else
             echo "❌ Error: dist/manifest.json not found!"
