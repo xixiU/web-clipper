@@ -15,7 +15,7 @@ export default {
     if (pathname === '/login') {
       const redirectUri = `${url.origin}/callback`;
       // Request permissions for Drive and Docx
-      const scope = 'drive:drive docx:document:user_group_read_write';
+      const scope = 'drive:drive docx:document';
       const feishuAuthUrl = `https://open.feishu.cn/open-apis/authen/v1/authorize?app_id=${env.APP_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}`;
       return Response.redirect(feishuAuthUrl, 302);
     }

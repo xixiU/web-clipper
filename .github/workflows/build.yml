@@ -20,7 +20,7 @@ jobs:
         run: npm install --force
 
       - name: Build 
-        run: npm run build
+        run: npm run dev
 
       - name: Build and Package
         run: npm run release
@@ -31,7 +31,7 @@ jobs:
           ls -F
           echo "Listing dist directory (if exists):"
           ls -F dist || echo "Dist folder not found"
-          
+
       - name: Upload Chrome Package
         uses: actions/upload-artifact@v4
         with:
