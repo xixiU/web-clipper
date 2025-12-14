@@ -62,51 +62,45 @@ export default class FeishuForm extends Component<FeishuFormProps & FormComponen
           })(<Input disabled={editMode || verified} placeholder="https://your-worker.workers.dev" />)}
         </Form.Item>
         <Form.Item label="Action">
-             <Button type="primary" onClick={this.handleLogin} disabled={!workerUrl}>
-               <FormattedMessage id="backend.services.feishu.form.login" defaultMessage="Login to Feishu" />
-             </Button>
+          <Button type="primary" onClick={this.handleLogin} disabled={!workerUrl}>
+            <FormattedMessage id="backend.services.feishu.form.login" defaultMessage="Login to Feishu" />
+          </Button>
         </Form.Item>
         <Form.Item label="Token JSON">
-          {getFieldDecorator('accessToken', {
-             // We use a hidden logic or simple text area to paste the JSON?
-             // Actually, usually user copies the whole JSON. Let's provide a TextArea.
-             // But the service expects separated fields. 
-             // Let's make a smart input that parses JSON on change?
-             // Or just simple AccessToken input if user parses it? 
-             // JSON paste is better.
-             initialValue: initData.accessToken ? '********' : '',
-             rules: [{ required: true, message: 'Token is required' }]
-          })(
-             <Input.TextArea 
-                rows={4} 
-                placeholder='Paste the JSON response from Worker here: {"access_token": "...", "refresh_token": "..."}'
-                onChange={(e) => {
-                    try {
-                        const data = JSON.parse(e.target.value);
-                        if (data.access_token && data.refresh_token) {
-                            // Determine expiration time (current time + expires_in - buffer)
-                            const expiresAt = Math.floor(Date.now() / 1000) + (data.expires_in || 7200);
-                            
-                            // Set fields silently
-                            this.props.form.setFieldsValue({
-                                'accessToken': data.access_token,
-                                'refreshToken': data.refresh_token,
-                                'expiresAt': expiresAt
-                            });
-                        }
-                    } catch (err) {
-                        // Ignore parse error, maybe user is typing manual token
-                    }
-                }}
-             />
-          )}
+          <Input.TextArea
+            rows={4}
+            placeholder='Paste the JSON response from Worker here: {"access_token": "...", "refresh_token": "..."}'
+            onChange={(e) => {
+              try {
+                const data = JSON.parse(e.target.value);
+                if (data.access_token && data.refresh_token) {
+                  const expiresAt = Math.floor(Date.now() / 1000) + (Number(data.expires_in) || 7200);
+
+                  // Set fields silently
+                  this.props.form.setFieldsValue({
+                    'accessToken': data.access_token,
+                    'refreshToken': data.refresh_token,
+                    'expiresAt': expiresAt
+                  });
+                }
+              } catch (err) {
+                // Ignore parse error, maybe user is typing manual token
+              }
+            }}
+          />
         </Form.Item>
         {/* Hidden fields to store parsed values */}
         <Form.Item style={{ display: 'none' }}>
-            {getFieldDecorator('refreshToken', { initialValue: initData.refreshToken })(<Input />)}
+          {getFieldDecorator('accessToken', {
+            initialValue: initData.accessToken,
+            rules: [{ required: true, message: 'Access Token is required' }]
+          })(<Input />)}
         </Form.Item>
         <Form.Item style={{ display: 'none' }}>
-            {getFieldDecorator('expiresAt', { initialValue: initData.expiresAt })(<Input />)}
+          {getFieldDecorator('refreshToken', { initialValue: initData.refreshToken })(<Input />)}
+        </Form.Item>
+        <Form.Item style={{ display: 'none' }}>
+          {getFieldDecorator('expiresAt', { initialValue: initData.expiresAt })(<Input />)}
         </Form.Item>
       </Fragment>
     );
