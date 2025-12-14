@@ -19,9 +19,19 @@ jobs:
       - name: Install Dependencies
         run: npm install --force
 
+      - name: Build 
+        run: npm run build
+
       - name: Build and Package
         run: npm run release
 
+      - name: Inspect Build Output (Debug)
+        run: |
+          echo "Listing root directory:"
+          ls -F
+          echo "Listing dist directory (if exists):"
+          ls -F dist || echo "Dist folder not found"
+          
       - name: Upload Chrome Package
         uses: actions/upload-artifact@v4
         with:
