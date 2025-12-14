@@ -87,8 +87,11 @@ export default class FeishuDocumentService implements DocumentService {
     return this.config.accessToken;
   };
 
-  private requestWithToken = async <T>(path: string, method: 'GET' | 'POST', data?: any) => {
+  private requestWithToken = async <T>(path: string, method: 'GET' | 'POST' | 'PATCH', data?: any) => {
     const token = await this.getAccessToken();
+    if (!token) {
+      throw new Error('Access token is missing. Please re-login.');
+    }
     const url = `${OPEN_API}${path}`;
     // Aggressively clean token: remove all whitespace including internal newlines
     const cleanToken = token.replace(/\s+/g, '');
@@ -97,8 +100,7 @@ export default class FeishuDocumentService implements DocumentService {
       url,
       method,
       tokenLength: cleanToken.length,
-      tokenPreview: `${cleanToken.substring(0, 10)}...${cleanToken.substring(cleanToken.length - 5)}`,
-      cleanToken: cleanToken
+      data: data ? JSON.stringify(data) : undefined
     });
 
     try {
@@ -106,7 +108,7 @@ export default class FeishuDocumentService implements DocumentService {
         'Authorization': `Bearer ${cleanToken}`,
       });
 
-      if (method === 'POST') {
+      if (method === 'POST' || method === 'PATCH') {
         headers.append('Content-Type', 'application/json');
       }
 
@@ -115,7 +117,7 @@ export default class FeishuDocumentService implements DocumentService {
         headers,
       };
 
-      if (method === 'POST' && data) {
+      if ((method === 'POST' || method === 'PATCH') && data) {
         options.body = JSON.stringify(data);
       }
 
@@ -178,11 +180,60 @@ export default class FeishuDocumentService implements DocumentService {
     }
   };
 
+  private uploadImage = async (url: string, parentNode: string): Promise<string | null> => {
+    try {
+      console.log('Downloading image:', url);
+      const imgRes = await fetch(url);
+      if (!imgRes.ok) {
+        console.error('Image download failed:', imgRes.status);
+        return null;
+      }
+      const blob = await imgRes.blob();
+
+      const formData = new FormData();
+      formData.append('file_name', 'image.png');
+      formData.append('parent_type', 'docx_image');
+      formData.append('parent_node', parentNode);
+      formData.append('size', String(blob.size));
+      formData.append('file', blob);
+
+      const token = await this.getAccessToken();
+      const uploadRes = await fetch(`${OPEN_API}/open-apis/drive/v1/medias/upload_all`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData
+      });
+      const json = await uploadRes.json();
+      if (json.code !== 0) {
+        console.error('Feishu Image Upload Error:', json);
+        return null;
+      }
+      console.log('Image uploaded, token:', json.data.file_token);
+      return json.data.file_token;
+    } catch (e) {
+      console.error('Image upload exception:', e);
+      return null;
+    }
+  }
+
+  private batchUpdateBlocks = async (documentId: string, updates: { blockId: string, token: string }[]) => {
+    if (updates.length === 0) return;
+    try {
+      const requests = updates.map(u => ({
+        block_id: u.blockId,
+        replace_image: { token: u.token }
+      }));
+      await this.requestWithToken<any>(`/open-apis/docx/v1/documents/${documentId}/blocks/batch_update`, 'PATCH', { requests });
+      console.log(`Batch updated ${updates.length} images.`);
+    } catch (e) {
+      console.error('Failed to batch update blocks:', e);
+    }
+  }
+
   createDocument = async (info: FeishuCreateDocumentRequest): Promise<FeishuCompleteStatus> => {
     const { title, content, repositoryId } = info;
 
     // 1. Create Document
-    // Using User Access Token, folder_token can be root token.
     const createRes = await this.requestWithToken<any>('/open-apis/docx/v1/documents', 'POST', {
       folder_token: repositoryId,
       title: title,
@@ -190,26 +241,79 @@ export default class FeishuDocumentService implements DocumentService {
 
     const documentId = createRes.document.document_id;
 
-    // 2. Write Content
-    const blocks = [
-      {
-        block_type: 2, // Text
-        text: {
-          elements: [
-            {
-              text_run: {
-                content: content
-              }
-            }
-          ]
+    // 2. Parse Content into Segments
+    const parts = content.split(/(!\[.*?\]\(.*?\))/g);
+    const segments: { type: 'text' | 'image', data: string }[] = [];
+
+    parts.forEach(part => {
+      const imageMatch = part.match(/!\[.*?\]\((.*?)\)/);
+      if (imageMatch) {
+        segments.push({ type: 'image', data: imageMatch[1] });
+      } else if (part) {
+        // Split text by newlines to avoid "invalid param" for huge text blocks
+        const lines = part.split(/\r?\n/);
+        lines.forEach(line => {
+          segments.push({ type: 'text', data: line });
+        });
+      }
+    });
+
+    // 3. Create Blocks in Chunks
+    if (segments.length > 0) {
+      const chunkSize = 50;
+      for (let i = 0; i < segments.length; i += chunkSize) {
+        const chunk = segments.slice(i, i + chunkSize);
+
+        // Create blocks with empty image tokens
+        const childrenPayload = chunk.map(seg => {
+          if (seg.type === 'image') {
+            return {
+              block_type: 27,
+              image: { token: "" } // Placeholder
+            };
+          } else {
+            return {
+              block_type: 2,
+              text: { elements: [{ text_run: { content: seg.data } }] }
+            };
+          }
+        });
+
+        const createChildrenRes = await this.requestWithToken<any>(
+          `/open-apis/docx/v1/documents/${documentId}/blocks/${documentId}/children`,
+          'POST',
+          { children: childrenPayload, index: -1 }
+        );
+
+        // 4. Process Images: Upload and Collect Updates
+        const createdChildren = createChildrenRes.children;
+        const uploadPromises: Promise<{ blockId: string, token: string | null }>[] = [];
+
+        for (let j = 0; j < chunk.length; j++) {
+          if (chunk[j].type === 'image' && createdChildren[j]) {
+            const blockId = createdChildren[j].block_id;
+            const imageUrl = chunk[j].data;
+
+            // Initiate upload
+            uploadPromises.push(
+              this.uploadImage(imageUrl, blockId)
+                .then(token => ({ blockId, token }))
+            );
+          }
+        }
+
+        // Wait for all uploads in this chunk
+        if (uploadPromises.length > 0) {
+          const results = await Promise.all(uploadPromises);
+          const updates = results
+            .filter(r => r.token !== null)
+            .map(r => ({ blockId: r.blockId, token: r.token as string }));
+
+          // Batch update images
+          await this.batchUpdateBlocks(documentId, updates);
         }
       }
-    ];
-
-    await this.requestWithToken<any>(`/open-apis/docx/v1/documents/${documentId}/blocks/${documentId}/children`, 'POST', {
-      children: blocks,
-      index: -1,
-    });
+    }
 
     return {
       href: `https://feishu.cn/docx/${documentId}`,
@@ -218,4 +322,3 @@ export default class FeishuDocumentService implements DocumentService {
     };
   };
 }
-
